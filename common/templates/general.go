@@ -356,7 +356,7 @@ func CreateMessageSend(values ...interface{}) (*discordgo.MessageSend, error) {
 					return nil, err
 				}
 			} else {
-				var component discordgo.MessageComponent
+				var component discordgo.InteractiveComponent
 				switch comp := val.(type) {
 				case *discordgo.SelectMenu:
 					component = comp
@@ -365,7 +365,7 @@ func CreateMessageSend(values ...interface{}) (*discordgo.MessageSend, error) {
 				default:
 					return nil, errors.New("invalid component passed to send message builder")
 				}
-				msg.Components = append(msg.Components, discordgo.ActionsRow{[]discordgo.MessageComponent{component}})
+				msg.Components = append(msg.Components, discordgo.ActionsRow{[]discordgo.InteractiveComponent{component}})
 			}
 		case "ephemeral":
 			if val == nil || val == false {
@@ -400,7 +400,7 @@ func CreateMessageSend(values ...interface{}) (*discordgo.MessageSend, error) {
 				if button.Style == discordgo.LinkButton {
 					button.CustomID = ""
 				}
-				msg.Components = append(msg.Components, discordgo.ActionsRow{[]discordgo.MessageComponent{button}})
+				msg.Components = append(msg.Components, discordgo.ActionsRow{[]discordgo.InteractiveComponent{button}})
 			}
 		case "menus":
 			if val == nil {
@@ -427,7 +427,7 @@ func CreateMessageSend(values ...interface{}) (*discordgo.MessageSend, error) {
 				if err != nil {
 					return nil, err
 				}
-				msg.Components = append(msg.Components, discordgo.ActionsRow{[]discordgo.MessageComponent{menu}})
+				msg.Components = append(msg.Components, discordgo.ActionsRow{[]discordgo.InteractiveComponent{menu}})
 			}
 		case "forward":
 			if val == nil {
@@ -475,6 +475,11 @@ func CreateMessageSend(values ...interface{}) (*discordgo.MessageSend, error) {
 			} else {
 				msg.StickerIDs = append(msg.StickerIDs, ToInt64(val))
 			}
+		case "suppress_embeds":
+			if val == nil || val == false {
+				continue
+			}
+			msg.Flags |= discordgo.MessageFlagsSuppressEmbeds
 		default:
 			return nil, errors.New(`invalid key "` + key + `" passed to send message builder.`)
 		}
@@ -563,7 +568,7 @@ func CreateMessageEdit(values ...interface{}) (*discordgo.MessageEdit, error) {
 					return nil, err
 				}
 			} else {
-				var component discordgo.MessageComponent
+				var component discordgo.InteractiveComponent
 				switch comp := val.(type) {
 				case *discordgo.SelectMenu:
 					component = comp
@@ -572,7 +577,7 @@ func CreateMessageEdit(values ...interface{}) (*discordgo.MessageEdit, error) {
 				default:
 					return nil, errors.New("invalid component passed to send message builder")
 				}
-				msg.Components = append(msg.Components, discordgo.ActionsRow{[]discordgo.MessageComponent{component}})
+				msg.Components = append(msg.Components, discordgo.ActionsRow{[]discordgo.InteractiveComponent{component}})
 			}
 		case "buttons":
 			if val == nil {
@@ -602,7 +607,7 @@ func CreateMessageEdit(values ...interface{}) (*discordgo.MessageEdit, error) {
 				if button.Style == discordgo.LinkButton {
 					button.CustomID = ""
 				}
-				msg.Components = append(msg.Components, discordgo.ActionsRow{[]discordgo.MessageComponent{button}})
+				msg.Components = append(msg.Components, discordgo.ActionsRow{[]discordgo.InteractiveComponent{button}})
 			}
 		case "menus":
 			if val == nil {
@@ -629,8 +634,13 @@ func CreateMessageEdit(values ...interface{}) (*discordgo.MessageEdit, error) {
 				if err != nil {
 					return nil, err
 				}
-				msg.Components = append(msg.Components, discordgo.ActionsRow{[]discordgo.MessageComponent{menu}})
+				msg.Components = append(msg.Components, discordgo.ActionsRow{[]discordgo.InteractiveComponent{menu}})
 			}
+		case "suppress_embeds":
+			if val == nil || val == false {
+				continue
+			}
+			msg.Flags |= discordgo.MessageFlagsSuppressEmbeds
 		default:
 			return nil, errors.New(`invalid key "` + key + `" passed to message edit builder`)
 		}
@@ -813,6 +823,17 @@ func inFold(l interface{}, v string) bool {
 	}
 
 	return false
+}
+
+func tmplAbs(arg interface{}) interface{} {
+	absF := math.Abs(ToFloat64(arg))
+
+	switch arg.(type) {
+	case float32, float64:
+		return absF
+	default:
+		return int(absF)
+	}
 }
 
 func add(args ...interface{}) interface{} {
