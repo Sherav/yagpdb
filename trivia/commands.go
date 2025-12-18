@@ -102,13 +102,15 @@ func (p *Plugin) AddCommands() {
 			{
 				Name: "Sort", Type: dcmd.String, Default: "score", Choices: []*discordgo.ApplicationCommandOptionChoice{
 					{Name: "Score", Value: "score"},
-					{Name: "Streak", Value: "streak"},
 					{Name: "Max Streak", Value: "maxstreak"},
+					{Name: "Streak", Value: "streak"},
+					{Name: "Correct Answers", Value: "correct"},
+					{Name: "Incorrect Answers", Value: "incorrect"},
 				}, Help: "Sort by score, streak, or maxstreak"},
 		},
 		RunFunc: func(parsed *dcmd.Data) (any, error) {
 			sort := strings.ToLower(parsed.Args[0].Str())
-			if sort != "streak" && sort != "maxstreak" {
+			if sort != "streak" && sort != "maxstreak" && sort != "correct" && sort != "incorrect" {
 				sort = "score"
 			}
 
@@ -128,7 +130,7 @@ func (p *Plugin) AddCommands() {
 						return nil, paginatedmessages.ErrNoResults
 					}
 
-					maxScore, maxStreak, err := GetTriviaGuildStats(p.GuildID)
+					maxScore, currentStreak, maxStreak, maxCorrect, maxIncorrect, err := GetTriviaGuildStats(p.GuildID)
 					if err != nil {
 						return nil, err
 					}
@@ -137,11 +139,22 @@ func (p *Plugin) AddCommands() {
 					if err != nil {
 						return nil, err
 					}
+					titleemoji := "🥇🥈🏅"
+					if sort == "incorrect" {
+						titleemoji = "🤡🤡🤡"
+					}
 
 					embed := &discordgo.MessageEmbed{
-						Title:       "🥇🥈🏅 Trivia Leaderboard",
+						Title:       titleemoji + " Trivia Leaderboard",
 						Color:       0xFFD700, // Gold
-						Description: fmt.Sprintf("👑 **Server Best**\nMax Score: `%d` | Max Streak: `%d`| Total Players: `%d` \n\n", maxScore, maxStreak, totalUsers),
+						Description: "👑 **Server Best**",
+						Fields: []*discordgo.MessageEmbedField{
+							{Name: "Highest Score:", Value: fmt.Sprintf("**%d**", maxScore), Inline: true},
+							{Name: "Longest Current Streak", Value: fmt.Sprintf("**%d**", currentStreak), Inline: true},
+							{Name: "Longest Streak Ever", Value: fmt.Sprintf("**%d**", maxStreak), Inline: true},
+							{Name: "Most Correct Answers", Value: fmt.Sprintf("**%d**", maxCorrect), Inline: true},
+							{Name: "Most Incorrect Answers", Value: fmt.Sprintf("**%d**", maxIncorrect), Inline: true},
+						},
 					}
 
 					switch sort {
@@ -149,25 +162,26 @@ func (p *Plugin) AddCommands() {
 						embed.Title += " (By Streak)"
 					case "maxstreak":
 						embed.Title += " (By Max Streak)"
+					case "correct":
+						embed.Title += " (By Correct Answers)"
+					case "incorrect":
+						embed.Title += " (By Incorrect Answers)"
+					case "score":
+						embed.Title += " (By Score)"
 					}
-
+					emojiList := []string{"🥇", "🥈", "🥉"}
+					if sort == "incorrect" {
+						emojiList = []string{"🤡", "💩", "🗿"}
+					}
 					for i, u := range users {
-						var emoji string
+						emoji := ""
 						rank := offset + i + 1
-						switch rank {
-						case 1:
-							emoji = "🥇 "
-						case 2:
-							emoji = "🥈 "
-						case 3:
-							emoji = "🥉 "
-						default:
-							emoji = ""
+						if rank <= len(emojiList) {
+							emoji = emojiList[rank-1] + " "
 						}
-
 						entry := &discordgo.MessageEmbedField{}
 						entry.Inline = false
-						entry.Name = fmt.Sprintf("%sRank #%d / %d", emoji, rank, totalUsers)
+						entry.Name = fmt.Sprintf("%sRank #%d", emoji, rank)
 						entry.Value = fmt.Sprintf("**<@%d>**: Score **%d** | Played **%d** | Correct **%d** | Incorrect **%d** | Streak **%d** | Max Streak **%d**", u.UserID, u.Score, u.CorrectAnswers+u.IncorrectAnswers, u.CorrectAnswers, u.IncorrectAnswers, u.CurrentStreak, u.MaxStreak)
 						embed.Fields = append(embed.Fields, entry)
 					}
