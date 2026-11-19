@@ -11,8 +11,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/botlabs-gg/yagpdb/v2/bot/botrest"
 	"github.com/botlabs-gg/yagpdb/v2/common"
 	"github.com/botlabs-gg/yagpdb/v2/common/cplogs"
+	"github.com/botlabs-gg/yagpdb/v2/lib/discordgo"
 	"github.com/botlabs-gg/yagpdb/v2/premium"
 	"github.com/botlabs-gg/yagpdb/v2/serverpreview/models"
 	"github.com/botlabs-gg/yagpdb/v2/web"
@@ -65,6 +67,7 @@ type PostForm struct {
 	InviteChannel   int64 `valid:"channel,true"`
 	ShowMemberCount bool
 	ShowDescription bool
+	ShowBanner      bool
 
 	Slug        string `valid:",0,32"`
 	AccentColor string `valid:",0,7"`
@@ -93,9 +96,10 @@ func handleGetSettings(w http.ResponseWriter, r *http.Request) (web.TemplateData
 		accent = defaultAccentColor
 	}
 	tmpl["PreviewAccentColor"] = fmt.Sprintf("#%06x", accent)
-	tmpl["PreviewURL"] = fmt.Sprintf("%s/s/%d", web.BaseURL(), guild.ID)
+	version := VersionQuery(settings)
+	tmpl["PreviewURL"] = fmt.Sprintf("%s/s/%d%s", web.BaseURL(), guild.ID, version)
 	if settings.Slug.Valid && premium.ContextPremium(r.Context()) {
-		tmpl["PreviewSlugURL"] = web.BaseURL() + "/s/" + settings.Slug.String
+		tmpl["PreviewSlugURL"] = web.BaseURL() + "/s/" + settings.Slug.String + version
 	}
 	return tmpl, nil
 }
@@ -114,13 +118,17 @@ func handlePostSettings(w http.ResponseWriter, r *http.Request) (web.TemplateDat
 		return tmpl.AddAlerts(web.ErrorAlert("Server previews were disabled for this server by YAGPDB staff.")), nil
 	}
 
-	if form.Enabled && form.InviteChannel == 0 {
-		discordGuild, err := getGuildWithCounts(guild.ID)
+	if form.Enabled {
+		if form.InviteChannel == 0 {
+			return tmpl.AddAlerts(web.ErrorAlert("Pick an invite channel, the preview needs an invite for its Join button.")), nil
+		}
+
+		perms, err := botrest.GetChannelPermissions(guild.ID, form.InviteChannel)
 		if err != nil {
 			return tmpl, err
 		}
-		if discordGuild.VanityURLCode == "" {
-			return tmpl.AddAlerts(web.ErrorAlert("Pick an invite channel, the preview needs an invite for its Join button.")), nil
+		if perms&discordgo.PermissionCreateInstantInvite == 0 {
+			return tmpl.AddAlerts(web.ErrorAlert("YAGPDB is missing the Create Invite permission in the invite channel, give it that permission or pick another channel.")), nil
 		}
 	}
 
@@ -128,6 +136,7 @@ func handlePostSettings(w http.ResponseWriter, r *http.Request) (web.TemplateDat
 	updated.Enabled = form.Enabled
 	updated.HideMemberCount = !form.ShowMemberCount
 	updated.HideDescription = !form.ShowDescription
+	updated.HideBanner = !form.ShowBanner
 
 	if form.InviteChannel != updated.InviteChannelID || (updated.InviteCode == "" && form.InviteChannel != 0) {
 		code, err := CreateInvite(form.InviteChannel)
@@ -225,6 +234,7 @@ func handleRenderPreview(w http.ResponseWriter, r *http.Request) any {
 	settings := *current
 	settings.HideMemberCount = query.Get("ShowMemberCount") != "on"
 	settings.HideDescription = query.Get("ShowDescription") != "on"
+	settings.HideBanner = query.Get("ShowBanner") != "on"
 
 	if isPremium {
 		settings.AccentColor = 0
@@ -253,7 +263,7 @@ func handleRenderPreview(w http.ResponseWriter, r *http.Request) any {
 	}
 
 	preview := newPreview(&settings, discordGuild)
-	if discordGuild.VanityURLCode != "" || query.Get("InviteChannel") != "" && query.Get("InviteChannel") != "0" {
+	if query.Get("InviteChannel") != "" && query.Get("InviteChannel") != "0" {
 		preview.InviteURL = "https://discord.gg/"
 	}
 
@@ -278,12 +288,17 @@ func handlePublicPage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Failed loading this server preview, try again later.", http.StatusInternalServerError)
 		return
 	}
+	isBot := isLinkPreviewBot(r.UserAgent())
 	if preview == nil {
-		http.Redirect(w, r, "/", http.StatusFound)
+		if isBot {
+			http.NotFound(w, r)
+		} else {
+			http.Redirect(w, r, "/", http.StatusFound)
+		}
 		return
 	}
 
-	if !isLinkPreviewBot(r.UserAgent()) {
+	if !isBot {
 		http.Redirect(w, r, preview.InviteURL, http.StatusFound)
 		return
 	}
